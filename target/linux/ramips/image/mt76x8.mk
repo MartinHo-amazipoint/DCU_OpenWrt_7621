@@ -305,10 +305,19 @@ endef
 TARGET_DEVICES += mediatek_linkit-smart-7688
 
 define Device/mediatek_mt7628an-eval-board
+  MTK_SOC := mt7628an
   BLOCKSIZE := 64k
-  IMAGE_SIZE := 7872k
+  IMAGE_SIZE := 32448k
   DEVICE_VENDOR := MediaTek
   DEVICE_MODEL := MT7628 EVB
+  
+  # Ensure the kernel is built as a uImage
+  KERNEL := $(KERNEL_DTB) | uImage lzma
+  
+  IMAGES += factory.bin
+  # Use the uImage kernel and append rootfs
+  IMAGE/factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | check-size
+  
   DEVICE_PACKAGES := kmod-usb2 kmod-usb-ohci kmod-usb-ledtrig-usbport
   SUPPORTED_DEVICES += mt7628
 endef

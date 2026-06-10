@@ -38,7 +38,8 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyS0,57600";
+		bootargs = "console=ttyS0,115200";
+    		stdout-path = "serial0:115200n8";
 	};
 
 	pll: pll {
@@ -321,10 +322,7 @@
 				function = "nand1";
 			};
 
-			sdhci-nand {
-				groups = "sdhci";
-				function = "nand2";
-			};
+			/* Removed sdhci-nand section from here */
 		};
 
 		sdhci_pins: sdhci {

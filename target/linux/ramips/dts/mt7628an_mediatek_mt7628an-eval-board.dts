@@ -3,13 +3,21 @@
 / {
 	compatible = "mediatek,mt7628an-eval-board", "mediatek,mt7628an-soc";
 	model = "Mediatek MT7628AN evaluation board";
+	
+	    chosen {
+		bootargs = "console=ttyS0,57600 root=/dev/mtdblock5 rootwait";
+	    };
 };
 
-&state_default {
-	gpio {
-		groups = "i2c";
-		function = "gpio";
-	};
+&i2c {
+    status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&i2c_pins>;
+
+    rtc@68 {
+        compatible = "ti,bq32000";
+        reg = <0x68>;
+    };
 };
 
 &spi0 {
@@ -44,9 +52,9 @@
 			};
 
 			partition@50000 {
-				compatible = "denx,uimage";
+    				compatible = "denx,uimage";
 				label = "firmware";
-				reg = <0x50000 0x7b0000>;
+				reg = <0x50000 0x1fb0000>;
 			};
 		};
 	};

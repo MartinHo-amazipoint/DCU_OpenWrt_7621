@@ -1,0 +1,13 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -1358,6 +1358,10 @@ static const struct usb_device_id option
+ 	  .driver_info = NCTRL(2) },
+ 	{ USB_DEVICE_INTERFACE_CLASS(TELIT_VENDOR_ID, 0x701b, 0xff),	/* Telit LE910R1 (ECM) */
+ 	  .driver_info = NCTRL(2) },
++	{ USB_DEVICE(TELIT_VENDOR_ID, 0x7028),				/* Telit LE310Q1 (RNDIS) */
++	  .driver_info = RSVD(0) | RSVD(1) },
++	{ USB_DEVICE(TELIT_VENDOR_ID, 0x7029),				/* Telit LE310Q1 (ECM) */
++	  .driver_info = RSVD(0) | RSVD(1) },
+ 	{ USB_DEVICE(TELIT_VENDOR_ID, 0x9010),				/* Telit SBL FN980 flashing device */
+ 	  .driver_info = NCTRL(0) | ZLP },
+ 	{ USB_DEVICE(TELIT_VENDOR_ID, 0x9200),				/* Telit LE910S1 flashing device */
