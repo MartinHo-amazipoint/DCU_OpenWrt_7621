@@ -193,7 +193,7 @@
 		};
 
 		spi0: spi@b00 {
-			status = "disabled";
+			status = "okay";
 
 			compatible = "ralink,mt7621-spi";
 			reg = <0xb00 0x100>;
