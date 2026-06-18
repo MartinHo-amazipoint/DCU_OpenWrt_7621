@@ -23,7 +23,8 @@ ramips_setup_interfaces()
 	ubnt,unifi-flexhd|\
 	ubnt,unifi-nanohd|\
 	zyxel,nwa50ax|\
-	zyxel,nwa55axe)
+	zyxel,nwa55axe|\
+	mediatek,mt7621-eval-board)
 		ucidef_set_interface_lan "lan"
 		;;
 	ampedwireless,ally-r1900k|\

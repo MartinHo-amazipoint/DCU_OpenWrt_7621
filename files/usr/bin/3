@@ -1,0 +1,3 @@
+#!/bin/sh
+sh /usr/bin/telit_ping.sh "$1"
+

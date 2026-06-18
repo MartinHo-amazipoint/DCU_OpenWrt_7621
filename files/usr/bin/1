@@ -1,0 +1,3 @@
+#!/bin/sh
+sh /usr/bin/prod_test.sh
+

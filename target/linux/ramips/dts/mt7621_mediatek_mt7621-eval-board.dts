@@ -22,28 +22,24 @@
 &switch0 {
 	ports {
 		port@0 {
-			status = "okay";
-			label = "lan1";
+			status = "disabled"; // 物理上不存在，直接關閉
 		};
 
 		port@1 {
-			status = "okay";
-			label = "lan2";
+			status = "disabled"; // 物理上不存在
 		};
 
 		port@2 {
-			status = "okay";
-			label = "lan3";
+			status = "disabled"; // 物理上不存在
 		};
 
 		port@3 {
-			status = "okay";
-			label = "lan4";
+			status = "disabled"; // 物理上不存在
 		};
 
 		port@4 {
 			status = "okay";
-			label = "wan";
+			label = "lan";      // <--- 將 "wan" 改成 "lan"
 		};
 	};
 };
@@ -121,5 +117,4 @@
 		};
 	};
 };
-
 
