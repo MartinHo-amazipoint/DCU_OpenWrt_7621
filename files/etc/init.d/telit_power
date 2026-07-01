@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+
+START=15 # Run early, before network (20)
+
+start() {
+    # Initialize GPIOs
+    for g in 499 504 480 448; do
+        [ -d /sys/class/gpio/gpio$g ] || echo $g > /sys/class/gpio/export
+        echo out > /sys/class/gpio/gpio$g/direction
+    done
+
+    # Power sequence
+    echo 0 > /sys/class/gpio/gpio499/value  # Release Shutdown
+    echo 1 > /sys/class/gpio/gpio504/value  # Enable Wireless
+    echo 0 > /sys/class/gpio/gpio480/value  # Stay Awake
+    echo 1 > /sys/class/gpio/gpio448/value  # Pulse High
+    sleep 2
+    echo 0 > /sys/class/gpio/gpio448/value  # Pulse Low
+
+    # 2. Wait for the Modem to initialize the USB Serial Port
+    # It takes about 10-15 seconds for /dev/ttyACM2 to appear
+    local count=0
+    while [ ! -e /dev/ttyACM2 ] && [ $count -lt 30 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+
+    # 3. Send AT Commands to turn on the LED and set APN
+    if [ -e /dev/ttyACM2 ]; then
+        # Turn on 4G LED (GPIO4 High)
+        printf "AT#GPIO=4,1,1\r\n" > /dev/ttyACM2
+    fi
+}

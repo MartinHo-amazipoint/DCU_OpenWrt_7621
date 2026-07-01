@@ -42,7 +42,6 @@ fi
 echo -e "\n\033[1;33m========================================\033[0m"
 echo -e "\033[1;32m  PRODUCTION TEST SYSTEM (GPIO BASE 480)\033[0m"
 echo -e "  [1] Auto-Run Test   [3] 4G Ping Test"
-echo -e "  [2] Manual Menu     [4] GPS Test"
-echo -e "                      [5] SIM Stability"
+echo -e "  [2] Manual Menu     [4] SIM Stability"
 echo -e "\033[1;33m========================================\033[0m\n"
 

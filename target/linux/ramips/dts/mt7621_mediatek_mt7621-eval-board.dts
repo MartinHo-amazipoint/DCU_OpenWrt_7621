@@ -22,24 +22,40 @@
 &switch0 {
 	ports {
 		port@0 {
-			status = "disabled"; // 物理上不存在，直接關閉
+			status = "disabled";
 		};
 
+		/* 攝影機連接埠 */
 		port@1 {
-			status = "disabled"; // 物理上不存在
+			status = "okay";
+			label = "cam";
 		};
 
 		port@2 {
-			status = "disabled"; // 物理上不存在
+			status = "disabled";
 		};
 
 		port@3 {
-			status = "disabled"; // 物理上不存在
+			status = "disabled";
 		};
 
+		/* 外部 RJ45 網路孔 */
 		port@4 {
 			status = "okay";
-			label = "lan";      // <--- 將 "wan" 改成 "lan"
+			label = "lan";
+		};
+
+		/* CPU 連結埠 (必須開啟，否則上面兩個埠都無法通訊) */
+		port@6 {
+			status = "okay";
+			label = "cpu";
+			ethernet = <&ethernet>; // <-- 這裡從 &eth0 改成 &ethernet
+
+			fixed-link {
+				speed = <1000>;
+				full-duplex;
+				pause;
+			};
 		};
 	};
 };

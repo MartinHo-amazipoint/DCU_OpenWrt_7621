@@ -2,44 +2,38 @@
 
 # --- CONFIGURATION ---
 TEST_IP="192.168.1.2"
-MODEM_PORT="/dev/ttyUSB2"
+MODEM_PORT="/dev/ttyACM2"
 GPIO_BASE="480"
 
-# Pins based on your hardware check
-MODEM_RESET_PIN="19"  # Modem Emergency Reset (Section 6.3.4)
-PWR_DET_PIN="5"       # Power Loss Detect (RTS3_N)
+# 4G Modem Pins
+G_SHDN=499   
+G_W_EN=504   
+G_AWAKE=480  
+G_PWR_P=448  
 
-MODEM_REAL_GPIO=$((GPIO_BASE + MODEM_RESET_PIN)) # 499
-PWR_REAL_GPIO=$((GPIO_BASE + PWR_DET_PIN))      # 485
+# Power Detection Pin
+PWR_REAL_GPIO=507
+
+# Board LED Register Addresses
+REG_GPIO_MODE=0x1E000060
+REG_GPIO_DIR=0x1E000600
+REG_GPIO_SET=0x1E000630  
+REG_GPIO_CLR=0x1E000640  
+LED_MASK=0xB0000000
 # ---------------------
 
-# Color Codes
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Function to force UART3_MODE [4:3] into GPIO Mode (01)
-setup_pinmux() {
-    # Based on your mapping: bits 4:3. 01 = GPIO.
-    # Current 0x84A8 has bit 4=0, bit 3=1 -> Already 01 (GPIO)
-    if which devmem > /dev/null; then
-        CURRENT=$(devmem 0x1e000060)
-        # Clear bits 4:3 (AND with E7) and set to 01 (OR with 08)
-        NEW_VAL=$(printf "0x%x" $(( ($CURRENT & 0xFFFFFFE7) | 0x00000008 )))
-        if [ "$CURRENT" != "$NEW_VAL" ]; then
-            devmem 0x1e000060 32 $NEW_VAL
-        fi
-    fi
+# Helper: Turn on 4G LED
+modem_led_on() {
+    [ -e "$MODEM_PORT" ] && printf "AT#GPIO=4,1,1\r\n" > "$MODEM_PORT"
 }
 
-print_header() {
-    echo -e "\n${YELLOW}========================================${NC}"
-    echo -e "${YELLOW}       HARDWARE PRODUCTION TEST         ${NC}"
-    echo -e "${YELLOW}========================================${NC}"
-}
-
+# 1. RTC Test
 test_rtc() {
     echo -n "Testing RTC (BQ32002): "
     [ ! -e /dev/rtc0 ] && echo -e "${RED}[FAILED]${NC}" && return 1
@@ -47,11 +41,11 @@ test_rtc() {
     [ $? -eq 0 ] && echo -e "${GREEN}[PASS]${NC} ($RTC_VAL)" || echo -e "${RED}[FAILED]${NC}"
 }
 
+# 2. SD Card Test
 test_sd() {
     while true; do
         echo -n "Testing Micro SD Card: "
-        KLEVEL=$(cat /proc/sys/kernel/printk | cut -f1)
-        echo 1 > /proc/sys/kernel/printk 
+        KLEVEL=$(cat /proc/sys/kernel/printk | cut -f1); echo 1 > /proc/sys/kernel/printk
         PASSED=1
         if [ -e /dev/mmcblk0 ]; then
             DEV="/dev/mmcblk0"; [ -e "/dev/mmcblk0p1" ] && DEV="/dev/mmcblk0p1"
@@ -61,129 +55,188 @@ test_sd() {
             fi
         fi
         echo "$KLEVEL" > /proc/sys/kernel/printk
-        [ $PASSED -eq 0 ] && echo -e "${GREEN}[PASS]${NC}" && return 0
+        if [ $PASSED -eq 0 ]; then echo -e "${GREEN}[PASS]${NC}"; return 0; fi
         echo -e "${RED}[FAILED]${NC}"
-        echo -e "${YELLOW}>>> INSERT SD CARD AND PRESS [ENTER] TO RETRY...${NC}"
-        read pause_key
+        echo -e "${YELLOW}>>> PLEASE INSERT MICRO SD CARD AND PRESS [ENTER]...${NC}"
+        read p
     done
 }
 
+# 3. LAN Test
 test_lan() {
-    echo -n "Testing LAN Ping ($TEST_IP): "
-    ping -c 2 -W 2 $TEST_IP > /dev/null 2>&1 && echo -e "${GREEN}[PASS]${NC}" || echo -e "${RED}[FAILED]${NC}"
+    while true; do
+        echo -n "Testing LAN Ping ($TEST_IP): "
+        if ping -c 2 -W 2 $TEST_IP > /dev/null 2>&1; then
+            echo -e "${GREEN}[PASS]${NC}"; return 0
+        fi
+        echo -e "${RED}[FAILED]${NC}"
+        echo -e "${YELLOW}>>> PLEASE PLUG IN RJ45 CABLE AND PRESS [ENTER]...${NC}"
+        read p
+    done
 }
 
+# 4. Board LED Test
+test_leds() {
+    echo -e "${YELLOW}Watching Board LEDs (Yel/Red/Grn)! Blinking for 3s...${NC}"
+    devmem $REG_GPIO_DIR 32 $(printf "0x%x" $(( $(devmem $REG_GPIO_DIR) | $LED_MASK )) )
+    count=0
+    while [ $count -lt 6 ]; do
+        devmem $REG_GPIO_CLR 32 $LED_MASK; usleep 250000
+        devmem $REG_GPIO_SET 32 $LED_MASK; usleep 250000
+        count=$((count + 1))
+    done
+    echo -e "Board LEDs: ${GREEN}[DONE]${NC}"
+}
+
+# 5. 4G Modem & SIM Test
 test_4g() {
     while true; do
         echo -n "Testing 4G Modem & SIM: "
         if [ -e "$MODEM_PORT" ]; then
-            exec 3<>$MODEM_PORT; echo -e "AT+CPIN?\r" >&3
-            read -t 2 l1 <&3; read -t 2 res <&3; exec 3>&-
-            if echo "$res" | grep -q "READY"; then
-                echo -e "${GREEN}[PASS]${NC}"; return 0
+            rm -f /tmp/at_res.txt
+            cat "$MODEM_PORT" > /tmp/at_res.txt &
+            CPID=$!
+            printf "AT+CPIN?\r\n" > "$MODEM_PORT"
+            sleep 1
+            kill $CPID 2>/dev/null
+            wait $CPID 2>/dev/null
+            if grep -q "+CPIN: READY" /tmp/at_res.txt; then
+                echo -e "${GREEN}[PASS]${NC}"
+                modem_led_on; return 0
             fi
         fi
+
         echo -e "${RED}[FAILED]${NC}"
-        echo -e "${YELLOW}>>> INSERT SIM AND PRESS [ENTER] TO RESET MODEM...${NC}"
-        read pause_key
+        echo -e "${YELLOW}>>> INSERT SIM. PRESS [ENTER] TO REBOOT MODEM & RETRY...${NC}"
+        read p
+
         if [ -e "$MODEM_PORT" ]; then
-            echo -e "AT+CFUN=1,1\r" > "$MODEM_PORT"
-            i=0; while [ $i -lt 12 ]; do echo -n "."; sleep 1; i=$((i+1)); done; echo ""
+            printf "AT+CFUN=1,1\r\n" > "$MODEM_PORT"
+            sleep 10
+        else
+            test_4g_hw_reset > /dev/null 2>&1
         fi
     done
 }
 
+# 6. 4G Hardware Reset PIN Test (Silent execution to avoid kernel log overlap)
 test_4g_hw_reset() {
-    echo -n "Testing 4G HW Emergency Reset (GPIO $MODEM_REAL_GPIO): "
-    if [ ! -e "$MODEM_PORT" ]; then
-        echo -e "${RED}[FAILED]${NC} - No Modem"
-        return 1
-    fi
-    [ ! -d /sys/class/gpio/gpio$MODEM_REAL_GPIO ] && echo $MODEM_REAL_GPIO > /sys/class/gpio/export
-    echo out > /sys/class/gpio/gpio$MODEM_REAL_GPIO/direction
-    echo 0 > /sys/class/gpio/gpio$MODEM_REAL_GPIO/value 
-    usleep 300000
-    echo 1 > /sys/class/gpio/gpio$MODEM_REAL_GPIO/value
+    # Perform GPIO actions silently
+    echo 1 > /sys/class/gpio/gpio$G_SHDN/value
+    echo 0 > /sys/class/gpio/gpio$G_PWR_P/value
+    sleep 1
+    echo 0 > /sys/class/gpio/gpio$G_SHDN/value
+    echo 1 > /sys/class/gpio/gpio$G_W_EN/value
+    echo 0 > /sys/class/gpio/gpio$G_AWAKE/value
+    echo 1 > /sys/class/gpio/gpio$G_PWR_P/value
     sleep 2
-    [ -e "$MODEM_PORT" ] && echo -e "${RED}[FAILED]${NC} - Modem did not reset" && return 1
-    timeout=30; while [ $timeout -gt 0 ]; do
-        [ -e "$MODEM_PORT" ] && echo -e "${GREEN}[PASS]${NC}" && return 0
-        sleep 1; timeout=$((timeout - 1))
+    echo 0 > /sys/class/gpio/gpio$G_PWR_P/value
+
+    # Detection Loop
+    timeout=30
+    FOUND=1
+    while [ $timeout -gt 0 ]; do
+        if [ -e "$MODEM_PORT" ]; then
+            FOUND=0
+            break
+        fi
+        sleep 1
+        timeout=$((timeout - 1))
     done
-    echo -e "${RED}[FAILED]${NC} - Timeout" && return 1
-}
 
-test_power_detection() {
-    echo -e "${BLUE}--- Power Detection Test (GPIO $PWR_REAL_GPIO) ---${NC}"
-    setup_pinmux
-    if [ ! -d /sys/class/gpio/gpio$PWR_REAL_GPIO ]; then
-        echo $PWR_REAL_GPIO > /sys/class/gpio/export 2>/dev/null
-    fi
-    echo in > /sys/class/gpio/gpio$PWR_REAL_GPIO/direction
-
-    VAL=$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value)
-    if [ "$VAL" != "1" ]; then
-        echo -e "Power Detect: ${RED}[FAILED]${NC} - Start with Plugged in."
+    if [ $FOUND -eq 0 ]; then
+        # Extra settle time so PASS string appears after USB logs
+        sleep 5 
+        modem_led_on
+        echo -e "Testing 4G Hardware Reset PIN: ${GREEN}[PASS]${NC}"
+        return 0
+    else
+        echo -e "Testing 4G Hardware Reset PIN: ${RED}[FAILED]${NC}"
         return 1
     fi
-    echo -e "Status: ${GREEN}PLUGGED IN (1)${NC}"
-
-    echo -e "${YELLOW}>>> PLEASE UN-PLUG POWER SUPPLY NOW...${NC}"
-    T=20; F=0; while [ $T -gt 0 ]; do
-        if [ "$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value)" = "0" ]; then
-            echo -e "Status: ${GREEN}UN-PLUGGED (0)${NC}"; F=1; break
-        fi
-        sleep 1; T=$((T-1))
-    done
-    [ $F -eq 0 ] && echo -e "Power Detect: ${RED}[FAILED]${NC}" && return 1
-
-    echo -e "${YELLOW}>>> PLEASE PLUG POWER SUPPLY BACK IN...${NC}"
-    T=20; F=0; while [ $T -gt 0 ]; do
-        if [ "$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value)" = "1" ]; then
-            echo -e "Status: ${GREEN}RE-PLUGGED (1)${NC}"; F=1; break
-        fi
-        sleep 1; T=$((T-1))
-    done
-    [ $F -eq 0 ] && echo -e "Power Detect: ${RED}[FAILED]${NC}" && return 1
-
-    echo -e "Power Detection: ${GREEN}[PASS]${NC}"
-    return 0
 }
 
+# 7. Power Detection Test
+test_power_detection() {
+    while true; do
+        echo -e "${BLUE}--- Power Detection Test (GPIO $PWR_REAL_GPIO) ---${NC}"
+        echo in > /sys/class/gpio/gpio$PWR_REAL_GPIO/direction 2>/dev/null
+        VAL=$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value 2>/dev/null)
+        if [ "$VAL" != "1" ]; then
+            echo -e "Power Detect: ${RED}[FAILED]${NC} - Pin is LOW (0)."
+            echo -e "${YELLOW}>>> CHECK POWER SUPPLY AND PRESS [ENTER] TO RETRY...${NC}"
+            read p; continue
+        fi
+        echo -e "Status: ${GREEN}PLUGGED IN (1)${NC}"
+        echo -e "${YELLOW}>>> PLEASE UN-PLUG POWER SUPPLY NOW...${NC}"
+        T=20; F=0; while [ $T -gt 0 ]; do
+            if [ "$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value)" = "0" ]; then echo -e "Status: ${GREEN}UN-PLUGGED (0)${NC}"; F=1; break; fi
+            sleep 1; T=$((T-1))
+        done
+        [ $F -eq 0 ] && echo -e "Power Detect: ${RED}[FAILED]${NC}" && return 1
+        echo -e "${YELLOW}>>> PLEASE PLUG POWER SUPPLY BACK IN...${NC}"
+        T=20; F=0; while [ $T -gt 0 ]; do
+            if [ "$(cat /sys/class/gpio/gpio$PWR_REAL_GPIO/value)" = "1" ]; then echo -e "Status: ${GREEN}RE-PLUGGED (1)${NC}"; F=1; break; fi
+            sleep 1; T=$((T-1))
+        done
+        [ $F -eq 0 ] && echo -e "Power Detect: ${RED}[FAILED]${NC}" && return 1
+        echo -e "Power Detection: ${GREEN}[PASS]${NC}"; return 0
+    done
+}
+
+# 9. Read MAC Address
 read_mac() {
     echo -n "Ethernet MAC Address: "
     MAC=$(cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/br-lan/address 2>/dev/null)
-    [ -n "$MAC" ] && echo -e "${GREEN}$(echo "$MAC" | tr 'a-z' 'A-Z')${NC}" || echo -e "${RED}[FAILED]${NC}"
+    if [ -n "$MAC" ]; then echo -e "${GREEN}$(echo "$MAC" | tr 'a-z' 'A-Z')${NC}"; return 0; fi
+    echo -e "${RED}[FAILED]${NC}"
 }
 
-test_wdt() {
-    echo -e "\n${BLUE}!!! TRIGGERING SoC HARDWARE RESET !!!${NC}"
-    echo 1 > /proc/sys/kernel/sysrq; usleep 100000; echo b > /proc/sysrq-trigger
+init_hardware() {
+    for p in $G_SHDN $G_W_EN $G_AWAKE $G_PWR_P; do
+        [ ! -d /sys/class/gpio/gpio$p ] && echo $p > /sys/class/gpio/export 2>/dev/null
+        echo out > /sys/class/gpio/gpio$p/direction 2>/dev/null
+    done
+    [ ! -d /sys/class/gpio/gpio$PWR_REAL_GPIO ] && echo $PWR_REAL_GPIO > /sys/class/gpio/export 2>/dev/null
+    echo in > /sys/class/gpio/gpio$PWR_REAL_GPIO/direction 2>/dev/null
+    if which devmem > /dev/null; then
+        VAL=$(devmem $REG_GPIO_MODE)
+        NEW_VAL=$(printf "0x%x" $(( ($VAL & 0x7FFFFFE7) | 0x00008008 )))
+        devmem $REG_GPIO_MODE 32 $NEW_VAL
+    fi
+}
+
+print_header() {
+    echo -e "\n${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}       HARDWARE PRODUCTION TEST         ${NC}"
+    echo -e "========================================${NC}"
 }
 
 run_all() {
     print_header
     echo -e "${BLUE}--- STARTING AUTOMATIC TEST ---${NC}"
     test_rtc
-    test_lan
     test_sd
-    test_power_detection
+    test_lan
+    test_leds
+    test_4g
+    #test_power_detection
+    test_4g_hw_reset
     read_mac
     echo -e "${BLUE}--- ALL ITEMS COMPLETE ---${NC}"
 }
 
-# --- MAIN LOGIC ---
-if [ "$1" != "--skip" ]; then
-    run_all
-fi
+# --- ENTRY ---
+init_hardware
+[ "$1" != "--skip" ] && run_all
 
 while true; do
     echo -e "\n${YELLOW}----------------------------------------${NC}"
     echo -e " [1] Run All Tests      [6] Test 4G Reset PIN"
     echo -e " [2] Test RTC           [7] Test Power Detect"
-    echo -e " [3] Test SD Card       [8] Read MAC"
-    echo -e " [4] Test LAN Ping      [r] SoC Reset"
-    echo -e " [5] Test 4G Modem      [q] Exit"
+    echo -e " [3] Test SD Card       [8] Test Board LEDs"
+    echo -e " [4] Test LAN Ping      [9] Read MAC"
+    echo -e " [5] Test 4G Modem      [r] SoC Reset  [q] Exit"
     echo -e "${YELLOW}----------------------------------------${NC}"
     echo -n "Selection: "
     read opt
@@ -195,8 +248,9 @@ while true; do
         5) test_4g ;;
         6) test_4g_hw_reset ;;
         7) test_power_detection ;;
-        8) read_mac ;;
-        r|R) test_wdt ;;
+        8) test_leds ;;
+        9) read_mac ;;
+        r|R) echo 1 > /proc/sys/kernel/sysrq; usleep 100000; echo b > /proc/sysrq-trigger ;;
         q|Q) exit 0 ;;
     esac
 done

@@ -8,6 +8,10 @@ ramips_setup_interfaces()
 	local board="$1"
 
 	case $board in
+	mediatek,mt7621-eval-board)
+		# 將 Port 4 (lan) 和 Port 1 (cam) 橋接在一起作為 LAN
+		ucidef_set_interface_lan "lan cam"
+		;;
 	ampedwireless,ally-00x19k|\
 	edimax,re23s|\
 	mikrotik,routerboard-m11g|\
@@ -23,8 +27,7 @@ ramips_setup_interfaces()
 	ubnt,unifi-flexhd|\
 	ubnt,unifi-nanohd|\
 	zyxel,nwa50ax|\
-	zyxel,nwa55axe|\
-	mediatek,mt7621-eval-board)
+	zyxel,nwa55axe)
 		ucidef_set_interface_lan "lan"
 		;;
 	ampedwireless,ally-r1900k|\
